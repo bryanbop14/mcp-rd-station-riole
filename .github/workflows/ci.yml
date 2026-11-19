@@ -17,3 +17,21 @@ jobs:
           node-version: '22'
       - run: npm install --no-audit --no-fund
       - run: npm run check
+      - run: npm run build
+      - name: Smoke-test server without production secrets
+        run: |
+          set -e
+          PORT=3030 node dist/src/http.js > server.log 2>&1 &
+          server_pid=$!
+          trap 'kill $server_pid 2>/dev/null || true' EXIT
+          for n in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:3030/health > /tmp/health.json; then
+              break
+            fi
+            sleep 1
+          done
+          cat /tmp/health.json
+          node -e 'const h=require("/tmp/health.json");if(h.status!=="ok")process.exit(1)'
+          curl -fsS http://127.0.0.1:3030/
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:3030/mcp)" = "503"
+          echo "Server startup and authentication fail-closed: OK"
