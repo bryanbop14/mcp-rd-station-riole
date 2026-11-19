@@ -44,3 +44,12 @@ npm run dev
 ```
 
 Documentação oficial: https://developers.rdstation.com/reference/welcome
+
+## Conectar RD Station via navegador (sem copiar tokens)
+
+1. No **App Publisher do RD Station Marketing**, mantenha a URL de Callback **exatamente** `https://mcp-rd-station-riole.vercel.app/` (com barra final). A propagação de mudanças pode levar até uma hora.
+2. Configure as variáveis `RD_CLIENT_ID`, `RD_CLIENT_SECRET`, `RD_TOKEN_STORE_REST_URL`, `RD_TOKEN_STORE_REST_TOKEN`, `MCP_ADMIN_PASSWORD` e `MCP_OAUTH_SECRET` em **Production**. Garanta que cada segredo está preenchido e faça Redeploy.
+3. Abra `https://mcp-rd-station-riole.vercel.app/rd/connect` e informe apenas no formulário a senha administrativa do MCP.
+4. Autorize a conta correta da Riole. O callback `/` valida o `state`, recebe o `code` e grava `access_token` e `refresh_token` diretamente no Redis. A tela final `/rd/connected` não mostra credenciais.
+
+**Importante**: `rdConfigured` e `mcpAuthConfigured` em `/health` significam somente configuração de variáveis; não validam acesso real. Para verificar conexão, consulte uma leitura autenticada via MCP. Os tokens iniciais `RD_ACCESS_TOKEN` e `RD_REFRESH_TOKEN` **não precisam ser cadastrados manualmente** ao usar este fluxo — o Redis guardará os dois. A rota de autorização é protegida por senha administrativa, `state` assinado e cookie HttpOnly/Secure. Não compartilhe URLs com `code` em prints ou mensagens.
