@@ -45,7 +45,7 @@ export async function readPages(rd:RdClient,operation:string,params:Record<strin
   const slots=limits.maxItems-result.length;
   result.push(...items.slice(0,slots));
   const size=Number(response.pagination?.page_size??(acceptedPageSize?requestedPageSize:items.length));
-  const doneByTotal=total!==null&&result.length>=total;
+  const doneByTotal=total!==null&&((firstPage-1)*size+result.length)>=total;
   const doneBySize=items.length===0||(size>0&&items.length<size);
   if(doneByTotal||doneBySize){nextPage=null;break;}
   nextPage=page+1;
