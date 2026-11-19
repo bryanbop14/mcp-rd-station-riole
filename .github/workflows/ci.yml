@@ -21,6 +21,28 @@ jobs:
       - name: Validate Vercel server entrypoint
         run: |
           node --input-type=module -e 'const m=await import("./dist/src/app.js"); if(typeof m.default !== "function") process.exit(1);'
+      - name: Verify RD read catalog and pagination
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from "node:assert/strict";
+          import {endpoints,validateReadQuery,routeFor} from "./dist/src/policy.js";
+          import {readPages} from "./dist/src/pagination.js";
+          const reads=Object.entries(endpoints).filter(([,e])=>e.method==="GET");
+          assert.equal(reads.length,27);
+          assert.equal(routeFor("contact_get",{identifier:"email",value:"a@b.com"}),"/platform/contacts/email:a%40b.com");
+          assert.throws(()=>validateReadQuery("contact_create",{}),/não autorizada/);
+          assert.throws(()=>validateReadQuery("segmentations",{unsafe:true}),/não documentado/);
+          const fake={call:async(op)=>({data:{contacts:[{id:(Number(op.query.page)-1)*2+1},{id:(Number(op.query.page)-1)*2+2}]},pagination:{total:"6",page:String(op.query.page),page_size:"2"}})};
+          const r=await readPages(fake,"segmentation_contacts",{id:1},{page:1},{maxPages:2,maxItems:6,pageSize:2});
+          assert.equal(r.complete,false);
+          assert.equal(r.truncated,true);
+          assert.equal(r.items_returned,4);
+          assert.equal(r.next_page,3);
+          const r2=await readPages(fake,"segmentation_contacts",{id:1},{page:3},{maxPages:2,maxItems:6,pageSize:2});
+          assert.equal(r2.complete,true);
+          assert.equal(r2.items_returned,2);
+          console.log("Catalog and pagination tests passed");
+          NODE
       - name: Smoke-test server without production secrets
         run: |
           set -e
