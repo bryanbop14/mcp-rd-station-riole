@@ -13,8 +13,22 @@ export class RdClient{
  }
  private async persist(t:Tokens):Promise<void>{
   if(!config.RD_TOKEN_STORE_REST_URL||!config.RD_TOKEN_STORE_REST_TOKEN)throw new Error("Configure RD_TOKEN_STORE_REST_URL e RD_TOKEN_STORE_REST_TOKEN antes de renovar OAuth na Vercel.");
-  const r=await fetch(config.RD_TOKEN_STORE_REST_URL.replace(/\/$/,"")+"/set/"+encodeURIComponent(config.RD_TOKEN_STORE_KEY),{method:"POST",headers:{Authorization:"Bearer "+config.RD_TOKEN_STORE_REST_TOKEN,"Content-Type":"application/json"},body:JSON.stringify(t)});
+  const r=await fetch(config.RD_TOKEN_STORE_REST_URL.replace(/\/$/,""),{method:"POST",headers:{Authorization:"Bearer "+config.RD_TOKEN_STORE_REST_TOKEN,"Content-Type":"application/json"},body:JSON.stringify(["SET",config.RD_TOKEN_STORE_KEY,JSON.stringify(t)])});
   if(!r.ok)throw new Error("Não foi possível persistir novo refresh_token");
+  const data=await r.json() as {result?:string;error?:string};
+  if(data.result!=="OK"||data.error)throw new Error("O Redis recusou o armazenamento dos tokens.");
+ }
+ async exchangeAuthorizationCode(code:string):Promise<void>{
+  if(!config.RD_CLIENT_ID||!config.RD_CLIENT_SECRET)throw new Error("RD_CLIENT_ID e RD_CLIENT_SECRET obrigatórios.");
+  if(!config.RD_TOKEN_STORE_REST_URL||!config.RD_TOKEN_STORE_REST_TOKEN)throw new Error("Upstash não configurada.");
+  const response=await fetch("https://api.rd.services/auth/token?token_by=code",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:config.RD_CLIENT_ID,client_secret:config.RD_CLIENT_SECRET,code})});
+  const data=await response.json() as Record<string,unknown>;
+  if(!response.ok||typeof data.access_token!=="string"||typeof data.refresh_token!=="string"){
+    throw new Error("A troca do código OAuth RD falhou. Gere nova autorização e confirme a URL de callback.");
+  }
+  const tokens:Tokens={access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Date.now()+Number(data.expires_in??86400)*1000};
+  await this.persist(tokens);
+  this.token=tokens;
  }
  async refresh():Promise<string>{
   if(this.refreshing)return this.refreshing;
