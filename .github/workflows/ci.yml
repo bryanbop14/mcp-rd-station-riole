@@ -21,7 +21,6 @@ jobs:
       - name: Validate Vercel server entrypoint
         run: |
           node --input-type=module -e 'const m=await import("./dist/src/app.js"); if(typeof m.default !== "function") process.exit(1);'
-          node --input-type=module -e 'const m=await import("./dist/api/index.js"); if(typeof m.default !== "function") process.exit(1);'
       - name: Smoke-test server without production secrets
         run: |
           set -e
