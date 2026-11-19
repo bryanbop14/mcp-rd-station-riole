@@ -53,3 +53,37 @@ Documentação oficial: https://developers.rdstation.com/reference/welcome
 4. Autorize a conta correta da Riole. O callback `/` valida o `state`, recebe o `code` e grava `access_token` e `refresh_token` diretamente no Redis. A tela final `/rd/connected` não mostra credenciais.
 
 **Importante**: `rdConfigured` e `mcpAuthConfigured` em `/health` significam somente configuração de variáveis; não validam acesso real. Para verificar conexão, consulte uma leitura autenticada via MCP. Os tokens iniciais `RD_ACCESS_TOKEN` e `RD_REFRESH_TOKEN` **não precisam ser cadastrados manualmente** ao usar este fluxo — o Redis guardará os dois. A rota de autorização é protegida por senha administrativa, `state` assinado e cookie HttpOnly/Secure. Não compartilhe URLs com `code` em prints ou mensagens.
+
+## Catálogo ampliado de consultas (2026-11-19)
+
+A versão atual registra **27 operações GET nomeadas** de RD Station Marketing (e webhooks de integração) em `src/policy.ts`. Os nomes são expostos como `rd_get_<operation>` ao ChatGPT, além destas ferramentas de suporte:
+
+- `rd_query_catalog`: lista todas as consultas habilitadas com grupo, descrição, plano e URL da documentação
+- `rd_methods_search`: pesquisa ferramentas pelo nome ou grupo
+- `rd_read`: chama uma operação GET permitida, com `params` e `query` restritos ao catálogo
+- `rd_batch_read`: até 15 GET sequenciais; erros individuais preservados
+- `rd_read_pages`: pagina até 25 páginas e 2.000 itens por chamada; retorna `complete`, `truncated`, `next_page` e `total_reported`; continue usando `next_page` para extrações grandes
+- `rd_inbound_audit`: contato e primeira página dos eventos de conversão para análise da origem
+
+**Grupos**: contatos, campos, segmentações, automação, análise, campanhas, emails, ativos (landing pages, formulários, pop-ups), catálogos e webhooks.
+
+Exemplos de `rd_read`:
+```json
+{"operation":"campaigns","query":{"page":1,"page_size":25}}
+{"operation":"workflow_get","params":{"id":123}}
+{"operation":"contact_events","params":{"uuid":"UUID"},"query":{"event_type":"CONVERSION","page":1}}
+```
+
+Exemplo de `rd_read_pages`:
+```json
+{"operation":"segmentation_contacts","params":{"id":6233719},"query":{"page":1},"max_pages":5,"max_items":200,"page_size":50}
+```
+
+### Limites e cobertura
+
+- Uma operação cadastrada **não é garantia de liberação**: plano, escopos OAuth e limites de requisições RD são validados na chamada real.
+- Catálogo confere com páginas oficiais em https://developers.rdstation.com/llms.txt; confirme cada operação com API real e revise caso a documentação mude.
+- Os endpoints GET de RD Station **CRM v1/v2 e Conversas não estão conectados** por este token de Marketing. Precisam de credenciais e políticas separadas.
+- O RD Marketing não oferece listagem irrestrita de todos os leads por período nessa API. Para bases completas, extraia contatos de segmentações com paginação e filtre `created_at` usando data de São Paulo. Não apresente resultados parciais como totais finais.
+- Alguns endpoints de automação são atualizados a cada 24h; para relatórios de hoje, informe essa defasagem.
+- As ferramentas `rd_execute_*` não são utilizadas pelo executor universal de leitura; escritas continuam sujeitas à whitelist e confirmação.
