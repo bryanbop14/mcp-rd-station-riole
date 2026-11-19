@@ -22,3 +22,6 @@ export function createApplication(){
  app.delete("/mcp",authenticateMcp(config),(_req,res)=>res.status(405).json({error:"Method not allowed"}));
  singleton=app;return app;
 }
+
+// Exportação reconhecida pela Vercel em detecção automática de Express.
+export default createApplication();
