@@ -1,6 +1,22 @@
 import {config} from "./config.js";
 import type {Action} from "./policy.js";
 type Tokens={access_token:string;refresh_token?:string;expires_at?:number};
+export class RdIntegrationError extends Error {
+ constructor(public readonly code:string,public readonly httpStatus?:number){
+  super(code);
+  this.name="RdIntegrationError";
+ }
+}
+function safeRdFailure(body:unknown,status:number):RdIntegrationError {
+ const obj=body&&typeof body==="object"?body as Record<string,unknown>:{};
+ const type=typeof obj.error_type==="string"?obj.error_type:"";
+ const description=typeof obj.error_message==="string"?obj.error_message:"";
+ if(type==="EXPIRED_CODE_GRANT"||/expired/i.test(description))return new RdIntegrationError("RD_AUTH_CODE_EXPIRED",status);
+ if(/wrong credentials/i.test(description))return new RdIntegrationError("RD_CLIENT_CREDENTIALS_INVALID",status);
+ if(type==="ACCESS_DENIED")return new RdIntegrationError("RD_ACCESS_DENIED",status);
+ return new RdIntegrationError("RD_AUTH_HTTP_"+status,status);
+}
+
 export class RdClient{
  private token:Tokens={access_token:config.RD_ACCESS_TOKEN??"",refresh_token:config.RD_REFRESH_TOKEN};
  private refreshing?:Promise<string>;
@@ -12,21 +28,47 @@ export class RdClient{
   return data.result?JSON.parse(data.result) as Tokens:null;
  }
  private async persist(t:Tokens):Promise<void>{
-  if(!config.RD_TOKEN_STORE_REST_URL||!config.RD_TOKEN_STORE_REST_TOKEN)throw new Error("Configure RD_TOKEN_STORE_REST_URL e RD_TOKEN_STORE_REST_TOKEN antes de renovar OAuth na Vercel.");
-  const r=await fetch(config.RD_TOKEN_STORE_REST_URL.replace(/\/$/,""),{method:"POST",headers:{Authorization:"Bearer "+config.RD_TOKEN_STORE_REST_TOKEN,"Content-Type":"application/json"},body:JSON.stringify(["SET",config.RD_TOKEN_STORE_KEY,JSON.stringify(t)])});
-  if(!r.ok)throw new Error("Não foi possível persistir novo refresh_token");
-  const data=await r.json() as {result?:string;error?:string};
-  if(data.result!=="OK"||data.error)throw new Error("O Redis recusou o armazenamento dos tokens.");
+  if(!config.RD_TOKEN_STORE_REST_URL||!config.RD_TOKEN_STORE_REST_TOKEN)
+   throw new RdIntegrationError("UPSTASH_CONFIGURATION_MISSING");
+  let response:Response;
+  try{
+   response=await fetch(config.RD_TOKEN_STORE_REST_URL.replace(/\/$/,""),{
+    method:"POST",
+    headers:{Authorization:"Bearer "+config.RD_TOKEN_STORE_REST_TOKEN,"Content-Type":"application/json"},
+    body:JSON.stringify(["SET",config.RD_TOKEN_STORE_KEY,JSON.stringify(t)])
+   });
+  }catch{throw new RdIntegrationError("UPSTASH_NETWORK_ERROR")}
+  if(!response.ok)throw new RdIntegrationError("UPSTASH_HTTP_"+response.status,response.status);
+  let result:{result?:string;error?:string};
+  try{result=await response.json() as {result?:string;error?:string}}
+  catch{throw new RdIntegrationError("UPSTASH_RESPONSE_INVALID")}
+  if(result.result!=="OK"||result.error)throw new RdIntegrationError("UPSTASH_WRITE_REJECTED");
  }
  async exchangeAuthorizationCode(code:string):Promise<void>{
-  if(!config.RD_CLIENT_ID||!config.RD_CLIENT_SECRET)throw new Error("RD_CLIENT_ID e RD_CLIENT_SECRET obrigatórios.");
-  if(!config.RD_TOKEN_STORE_REST_URL||!config.RD_TOKEN_STORE_REST_TOKEN)throw new Error("Upstash não configurada.");
-  const response=await fetch("https://api.rd.services/auth/token?token_by=code",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({client_id:config.RD_CLIENT_ID,client_secret:config.RD_CLIENT_SECRET,code})});
-  const data=await response.json() as Record<string,unknown>;
-  if(!response.ok||typeof data.access_token!=="string"||typeof data.refresh_token!=="string"){
-    throw new Error("A troca do código OAuth RD falhou. Gere nova autorização e confirme a URL de callback.");
-  }
-  const tokens:Tokens={access_token:data.access_token,refresh_token:data.refresh_token,expires_at:Date.now()+Number(data.expires_in??86400)*1000};
+  if(!config.RD_CLIENT_ID||!config.RD_CLIENT_SECRET)
+   throw new RdIntegrationError("RD_CLIENT_CREDENTIALS_MISSING");
+  if(!config.RD_TOKEN_STORE_REST_URL||!config.RD_TOKEN_STORE_REST_TOKEN)
+   throw new RdIntegrationError("UPSTASH_CONFIGURATION_MISSING");
+  let response:Response;
+  try{
+   response=await fetch("https://api.rd.services/auth/token?token_by=code",{
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({client_id:config.RD_CLIENT_ID,client_secret:config.RD_CLIENT_SECRET,code})
+   });
+  }catch{throw new RdIntegrationError("RD_AUTH_NETWORK_ERROR")}
+  let data:unknown;
+  try{data=await response.json()}catch{throw new RdIntegrationError("RD_AUTH_RESPONSE_INVALID",response.status)}
+  if(!response.ok)throw safeRdFailure(data,response.status);
+  const obj=data&&typeof data==="object"?data as Record<string,unknown>:{};
+  if(typeof obj.access_token!=="string"||typeof obj.refresh_token!=="string")
+   throw new RdIntegrationError("RD_AUTH_TOKENS_MISSING",response.status);
+  const tokens:Tokens={
+   access_token:obj.access_token,
+   refresh_token:obj.refresh_token,
+   expires_at:Date.now()+Number(obj.expires_in??86400)*1000
+  };
+  // O código do RD é de uso único. Se persistir falhar, reinicie a autorização.
   await this.persist(tokens);
   this.token=tokens;
  }
