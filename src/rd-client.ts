@@ -89,13 +89,20 @@ export class RdClient{
   const stored=await this.stored();if(stored?.access_token)this.token=stored;
   if(!this.token.access_token)await this.refresh();
   const url=new URL("https://api.rd.services"+op.path);
-  for(const [k,v] of Object.entries(op.query??{}))url.searchParams.set(k,String(v));
+  for(const [k,v] of Object.entries(op.query??{})){
+   const values=Array.isArray(v)?v:[v];
+   for(const item of values)url.searchParams.append(k,String(item));
+  }
   for(let attempt=0;attempt<4;attempt++){
    const controller=new AbortController();const timeout=setTimeout(()=>controller.abort(),config.RD_REQUEST_TIMEOUT_MS);
    try{
     const res=await fetch(url,{method:op.method,headers:{Authorization:"Bearer "+this.token.access_token,Accept:"application/json",...(op.body?{"Content-Type":"application/json"}:{})},body:op.body?JSON.stringify(op.body):undefined,signal:controller.signal});
     if(res.status===401&&attempt===0){await this.refresh();continue;}
-    if((res.status===429||res.status>=500)&&attempt<3){await new Promise(r=>setTimeout(r,Math.min(1500*(attempt+1),5000)));continue;}
+    if((res.status===429||res.status>=500)&&attempt<3){
+     const retryAfter=Number(res.headers.get("retry-after")??"");
+     const backoff=Number.isFinite(retryAfter)&&retryAfter>0?retryAfter*1000:1500*(attempt+1);
+     await new Promise(r=>setTimeout(r,Math.min(backoff,6000)));continue;
+    }
     const text=await res.text();let data:unknown;try{data=text?JSON.parse(text):{}}catch{data=text.slice(0,1000)}
     if(!res.ok)throw new Error("RD API "+res.status+": "+JSON.stringify(data).slice(0,1200));
     return {status:res.status,data,pagination:{total:res.headers.get("pagination-total-rows"),page:res.headers.get("pagination-page"),page_size:res.headers.get("pagination-page-size")}};
