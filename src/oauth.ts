@@ -459,7 +459,6 @@ function issueTokens(
 
 export function authenticateMcp(config: AppConfig) {
   return (req: Request, res: Response, next: NextFunction): void => {
-    if (config.MCP_AUTH_MODE === "none") return next();
 
     const token = bearer(req);
     if (!token) {
