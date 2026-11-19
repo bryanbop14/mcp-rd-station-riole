@@ -23,3 +23,5 @@ export const config={...env,
  publicBaseUrl:(env.PUBLIC_BASE_URL??(env.VERCEL_PROJECT_PRODUCTION_URL?"https://"+env.VERCEL_PROJECT_PRODUCTION_URL:"http://localhost:"+env.PORT)).replace(/\/$/,""),
  writeSecret:env.MCP_WRITE_SECRET??env.MCP_OAUTH_SECRET??env.MCP_ACCESS_TOKEN??"",
 };
+
+export type AppConfig = typeof config;
