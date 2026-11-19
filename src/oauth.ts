@@ -128,6 +128,15 @@ function oauthError(
 export function installOAuthRoutes(app: Express, config: AppConfig): void {
   const base = config.publicBaseUrl;
   const secret = config.MCP_OAUTH_SECRET ?? "";
+  // Proteção por padrão: sem segredos fortes, não emita códigos nem tokens.
+  if (config.MCP_AUTH_MODE !== "oauth" ||
+      secret.length < 32 ||
+      (config.MCP_ADMIN_PASSWORD ?? "").length < 12) {
+    app.use(["/register", "/authorize", "/token"], (_req, res) => {
+      res.status(503).json({ error: "oauth_not_configured" });
+    });
+    return;
+  }
   const usedAuthorizationCodes = new Map<string, number>();
 
   const metadata = {
@@ -460,6 +469,12 @@ function issueTokens(
 export function authenticateMcp(config: AppConfig) {
   return (req: Request, res: Response, next: NextFunction): void => {
 
+    if (config.MCP_AUTH_MODE === "oauth" &&
+       ((config.MCP_OAUTH_SECRET ?? "").length < 32 ||
+        (config.MCP_ADMIN_PASSWORD ?? "").length < 12)) {
+      res.status(503).json({ error: "oauth_not_configured" });
+      return;
+    }
     const token = bearer(req);
     if (!token) {
       res.setHeader(
