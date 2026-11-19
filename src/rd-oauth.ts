@@ -2,7 +2,7 @@ import {createHmac, randomBytes, timingSafeEqual} from "node:crypto";
 import type {Express, Request, Response} from "express";
 import {rateLimit} from "express-rate-limit";
 import {config} from "./config.js";
-import {RdClient} from "./rd-client.js";
+import {RdClient,RdIntegrationError} from "./rd-client.js";
 
 const COOKIE="riole_rd_oauth_state";
 function equal(a:string,b:string):boolean{
@@ -64,8 +64,15 @@ export function installRdAuthorization(app:Express):void{
   try{
    await new RdClient().exchangeAuthorizationCode(req.query.code);
    return res.redirect(303,"/rd/connected");
-  }catch{
-   return res.status(502).type("text").send("Não foi possível concluir a autorização RD. Confira a URL de callback, as credenciais e o Redis; gere nova autorização.");
+  }catch(error){
+   const reason=error instanceof RdIntegrationError?error.code:"RD_OAUTH_UNEXPECTED";
+   const stage=reason.startsWith("UPSTASH")?"redis":"rd_oauth";
+   const requestId=randomBytes(6).toString("hex");
+   console.error(JSON.stringify({event:"rd.authorization.failed",stage,reason,requestId}));
+   return res.status(502).set("Cache-Control","no-store").type("text").send(
+    "A autorização não foi concluída. Etapa: "+stage+"; código: "+reason+
+    "; referência: "+requestId+". Gere uma nova autorização em /rd/connect. Não envie tokens nem URLs com code."
+   );
   }
  });
  app.get("/rd/connected",(_req,res)=>res.status(200).set("Cache-Control","no-store").type("html").send('<html lang="pt-BR"><meta charset="utf-8"><title>RD Station conectado</title><main style="font:18px system-ui;margin:10vh auto;max-width:600px"><h2>RD Station autorizado</h2><p>Os tokens foram armazenados no servidor. Não é necessário copiar tokens para o ChatGPT.</p></main></html>'));
